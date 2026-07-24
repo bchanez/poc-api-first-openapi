@@ -1,0 +1,323 @@
+openapi: 3.0.3
+
+info:
+  title: API Catalogue de livres
+  version: 1.0.0
+  description: |
+    POC **API-first** : ce fichier `openapi.yaml` est la **source de vérité**.
+
+    - Les interfaces JAX-RS et les DTO sont *générés* à partir de ce contrat (openapi-generator, `jaxrs-spec`).
+    - Swagger UI charge **ce fichier tel quel** : tout ce que vous voyez (descriptions, exemples,
+      valeurs par défaut, schémas de réponse) vient d'ici, PAS d'annotations sur le code.
+  contact:
+    name: Équipe POC
+    email: equipe@example.gouv.fr
+  license:
+    name: Licence Ouverte 2.0
+    url: https://www.etalab.gouv.fr/licence-ouverte-open-licence
+
+servers:
+  - url: /api
+    description: Serveur courant (préfixe JAX-RS)
+
+tags:
+  - name: livres
+    description: Consultation et gestion du catalogue de livres.
+
+paths:
+  /livres:
+    get:
+      tags: [livres]
+      operationId: listerLivres
+      summary: Lister les livres du catalogue
+      description: |
+        Retourne une page de livres. Les filtres sont **combinables** (ET logique).
+        La pagination est obligatoire côté serveur : voir `page` et `taille`.
+      parameters:
+        - name: genre
+          in: query
+          required: false
+          description: Filtre sur le genre littéraire. Absent = tous genres.
+          schema:
+            $ref: '#/components/schemas/Genre'
+        - name: disponible
+          in: query
+          required: false
+          description: Ne retourner que les livres disponibles (`true`) ou indisponibles (`false`).
+          schema:
+            type: boolean
+            example: true
+        - name: recherche
+          in: query
+          required: false
+          description: Recherche plein-texte sur le titre et l'auteur (insensible à la casse).
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 100
+            example: Camus
+        - name: page
+          in: query
+          required: false
+          description: Index de la page, commence à 0.
+          schema:
+            type: integer
+            format: int32
+            minimum: 0
+            default: 0
+            example: 0
+        - name: taille
+          in: query
+          required: false
+          description: Nombre d'éléments par page (borné pour protéger le serveur).
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 100
+            default: 20
+            example: 20
+        - name: tri
+          in: query
+          required: false
+          description: Critère de tri de la page.
+          schema:
+            type: string
+            default: titre
+            enum: [titre, auteur, dateParution, prix]
+            example: dateParution
+      responses:
+        '200':
+          description: Page de livres correspondant aux filtres.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageLivres'
+              example:
+                total: 2
+                page: 0
+                taille: 20
+                elements:
+                  - id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    titre: L'Étranger
+                    auteur: Albert Camus
+                    isbn: 978-2-07-036002-4
+                    genre: ROMAN
+                    nombrePages: 159
+                    prix: 7.40
+                    disponible: true
+                    dateParution: 1942-06-15
+                  - id: 7c9e6679-7425-40de-944b-e07fc1f90ae7
+                    titre: Le Petit Prince
+                    auteur: Antoine de Saint-Exupéry
+                    isbn: 978-2-07-040850-4
+                    genre: JEUNESSE
+                    nombrePages: 96
+                    prix: 6.90
+                    disponible: false
+                    dateParution: 1943-04-06
+        '400':
+          $ref: '#/components/responses/RequeteInvalide'
+    post:
+      tags: [livres]
+      operationId: creerLivre
+      summary: Ajouter un livre au catalogue
+      description: Crée un livre. L'identifiant est attribué par le serveur.
+      requestBody:
+        required: true
+        description: Données du livre à créer.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NouveauLivre'
+            example:
+              titre: La Peste
+              auteur: Albert Camus
+              isbn: 978-2-07-036042-0
+              genre: ROMAN
+              nombrePages: 279
+              prix: 8.60
+              disponible: true
+              dateParution: 1947-06-10
+      responses:
+        '201':
+          description: Livre créé.
+          headers:
+            Location:
+              description: URI de la ressource créée.
+              schema:
+                type: string
+                format: uri
+                example: /api/livres/3fa85f64-5717-4562-b3fc-2c963f66afa6
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Livre'
+        '400':
+          $ref: '#/components/responses/RequeteInvalide'
+
+  /livres/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Identifiant unique du livre (UUID).
+        schema:
+          type: string
+          format: uuid
+          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+    get:
+      tags: [livres]
+      operationId: obtenirLivre
+      summary: Obtenir un livre par son identifiant
+      responses:
+        '200':
+          description: Le livre demandé.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Livre'
+        '404':
+          $ref: '#/components/responses/NonTrouve'
+    delete:
+      tags: [livres]
+      operationId: supprimerLivre
+      summary: Retirer un livre du catalogue
+      responses:
+        '204':
+          description: Livre supprimé (aucun corps).
+        '404':
+          $ref: '#/components/responses/NonTrouve'
+
+components:
+  responses:
+    RequeteInvalide:
+      description: Requête invalide (paramètre ou corps non conforme).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Erreur'
+          example:
+            code: REQUETE_INVALIDE
+            message: "Le champ 'isbn' ne respecte pas le format attendu."
+    NonTrouve:
+      description: Ressource introuvable.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Erreur'
+          example:
+            code: NON_TROUVE
+            message: Aucun livre pour cet identifiant.
+
+  schemas:
+    Genre:
+      type: string
+      description: Genre littéraire du livre.
+      enum: [ROMAN, POLICIER, JEUNESSE, SCIENCE_FICTION, ESSAI, POESIE]
+      example: ROMAN
+
+    NouveauLivre:
+      type: object
+      description: Données nécessaires à la création d'un livre (sans identifiant).
+      required: [titre, auteur, isbn, genre]
+      properties:
+        titre:
+          type: string
+          description: Titre de l'ouvrage.
+          minLength: 1
+          maxLength: 200
+          example: La Peste
+        auteur:
+          type: string
+          description: Nom complet de l'auteur.
+          minLength: 1
+          maxLength: 120
+          example: Albert Camus
+        isbn:
+          type: string
+          description: ISBN-13 avec tirets.
+          pattern: '^97[89]-\d-\d{2,7}-\d{1,7}-\d$'
+          example: 978-2-07-036042-0
+        genre:
+          $ref: '#/components/schemas/Genre'
+        nombrePages:
+          type: integer
+          format: int32
+          description: Nombre de pages.
+          minimum: 1
+          maximum: 20000
+          example: 279
+        prix:
+          type: number
+          format: double
+          description: Prix public conseillé, en euros TTC.
+          minimum: 0
+          default: 0.0
+          example: 8.60
+        disponible:
+          type: boolean
+          description: Disponible à la vente.
+          default: true
+          example: true
+        dateParution:
+          type: string
+          format: date
+          description: Date de première parution (ISO 8601).
+          example: 1947-06-10
+
+    Livre:
+      type: object
+      description: Un livre du catalogue, tel que renvoyé par l'API.
+      allOf:
+        - $ref: '#/components/schemas/NouveauLivre'
+        - type: object
+          required: [id]
+          properties:
+            id:
+              type: string
+              format: uuid
+              description: Identifiant unique attribué par le serveur.
+              readOnly: true
+              example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+
+    PageLivres:
+      type: object
+      description: Page de résultats paginée.
+      required: [total, page, taille, elements]
+      properties:
+        total:
+          type: integer
+          format: int64
+          description: Nombre total d'éléments (tous filtres appliqués, hors pagination).
+          example: 2
+        page:
+          type: integer
+          format: int32
+          description: Index de la page renvoyée.
+          example: 0
+        taille:
+          type: integer
+          format: int32
+          description: Taille de page demandée.
+          example: 20
+        elements:
+          type: array
+          description: Livres de la page courante.
+          items:
+            $ref: '#/components/schemas/Livre'
+
+    Erreur:
+      type: object
+      description: Corps d'erreur standardisé.
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Code d'erreur stable, exploitable par le client.
+          enum: [REQUETE_INVALIDE, NON_TROUVE]
+          example: NON_TROUVE
+        message:
+          type: string
+          description: Message lisible destiné au développeur.
+          example: Aucun livre pour cet identifiant.

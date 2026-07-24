@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.3.5</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.poc</groupId>
+    <artifactId>poc-api-first-openapi</artifactId>
+    <version>0.0.1</version>
+    <!-- WAR: the app is deployed to an EXTERNAL Tomcat, not the embedded one -->
+    <packaging>war</packaging>
+
+    <properties>
+        <java.version>21</java.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- Spring Security (pour reproduire ton cas : il faut permitAll les URLs Swagger) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+
+        <!-- Embedded Tomcat is 'provided': the real container ships it.
+             This is what makes the WAR deployable to an external Tomcat. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-tomcat</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- ============================================================
+             Couche REST API-first (JAX-RS / Jakarta EE, PAS Spring MVC)
+             ============================================================ -->
+
+        <!-- Jersey : implémentation JAX-RS. Namespace jakarta.* (Tomcat 10 / Jakarta EE 10).
+             Les controllers n'utilisent QUE jakarta.ws.rs.* — aucun import Spring. -->
+        <dependency>
+            <groupId>org.glassfish.jersey.containers</groupId>
+            <artifactId>jersey-container-servlet</artifactId>
+            <version>3.1.9</version>
+        </dependency>
+        <!-- Moteur d'injection de Jersey (obligatoire au démarrage du conteneur JAX-RS) -->
+        <dependency>
+            <groupId>org.glassfish.jersey.inject</groupId>
+            <artifactId>jersey-hk2</artifactId>
+            <version>3.1.9</version>
+        </dependency>
+        <!-- Jackson pour la (dé)sérialisation JSON côté Jersey -->
+        <dependency>
+            <groupId>org.glassfish.jersey.media</groupId>
+            <artifactId>jersey-media-json-jackson</artifactId>
+            <version>3.1.9</version>
+        </dependency>
+        <!-- Support des dates java.time (LocalDate) en JSON -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+        </dependency>
+        <!-- Bean Validation FONCTIONNELLE : @NotNull/@Size/@Pattern générés sur les DTO
+             sont réellement appliqués par Jersey (contrairement aux annotations Swagger,
+             qui ne sont que de la doc). -->
+        <dependency>
+            <groupId>org.glassfish.jersey.ext</groupId>
+            <artifactId>jersey-bean-validation</artifactId>
+            <version>3.1.9</version>
+        </dependency>
+
+        <!-- Swagger UI (statique) servi hors-ligne depuis le webjar : pas de CDN. -->
+        <dependency>
+            <groupId>org.webjars</groupId>
+            <artifactId>swagger-ui</artifactId>
+            <version>5.17.14</version>
+        </dependency>
+        <!-- webjars-locator : permet les URLs SANS version (/webjars/swagger-ui/index.html
+             au lieu de /webjars/swagger-ui/5.17.14/index.html). -->
+        <dependency>
+            <groupId>org.webjars</groupId>
+            <artifactId>webjars-locator-core</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <!-- Deterministic name so the Dockerfile can COPY target/app.war -->
+        <finalName>app</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+
+            <!--
+              API-FIRST : génère les interfaces JAX-RS + les DTO à partir de
+              src/main/resources/openapi/openapi.yaml (la source de vérité).
+
+              Choix clés :
+                - generatorName=jaxrs-spec  -> pur Jakarta EE (jakarta.ws.rs.*), pas de Spring
+                - interfaceOnly=true        -> on ne génère QUE les interfaces (on écrit l'impl)
+                - useJakartaEe=true         -> imports jakarta.* (Tomcat 10)
+                - useSwaggerAnnotations=false -> AUCUNE annotation Swagger dans le code.
+                    Inutile : Swagger UI lit openapi.yaml directement. Zéro template Mustache.
+                - useBeanValidation=true    -> @NotNull/@Size/@Pattern FONCTIONNELS sur les DTO
+                - returnResponse=true       -> les méthodes retournent Response (contrôle du 201/204/Location)
+
+              Sortie : target/generated-sources/openapi (ajoutée au classpath par le plugin).
+            -->
+            <plugin>
+                <groupId>org.openapitools</groupId>
+                <artifactId>openapi-generator-maven-plugin</artifactId>
+                <version>7.10.0</version>
+                <executions>
+                    <execution>
+                        <id>generer-api-livres</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>generate</goal>
+                        </goals>
+                        <configuration>
+                            <inputSpec>${project.basedir}/src/main/resources/openapi/openapi.yaml</inputSpec>
+                            <generatorName>jaxrs-spec</generatorName>
+                            <apiPackage>com.poc.api</apiPackage>
+                            <modelPackage>com.poc.api.model</modelPackage>
+                            <generateApiTests>false</generateApiTests>
+                            <generateModelTests>false</generateModelTests>
+                            <generateApiDocumentation>false</generateApiDocumentation>
+                            <generateModelDocumentation>false</generateModelDocumentation>
+                            <!-- N'émet PAS RestApplication/RestResourceRoot : sur un Tomcat externe,
+                                 leur @ApplicationPath déclenche un scan JAX-RS qui prend l'interface
+                                 LivresApi pour une ressource -> 500. On ne veut que interfaces + DTO. -->
+                            <generateSupportingFiles>false</generateSupportingFiles>
+                            <configOptions>
+                                <interfaceOnly>true</interfaceOnly>
+                                <returnResponse>true</returnResponse>
+                                <useJakartaEe>true</useJakartaEe>
+                                <useSwaggerAnnotations>false</useSwaggerAnnotations>
+                                <useBeanValidation>true</useBeanValidation>
+                                <useTags>true</useTags>
+                                <sourceFolder>src/gen/java</sourceFolder>
+                                <dateLibrary>java8</dateLibrary>
+                                <openApiNullable>false</openApiNullable>
+                            </configOptions>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
