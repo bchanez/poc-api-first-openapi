@@ -7,7 +7,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.3.5</version>
+        <version>4.1.1</version>
         <relativePath/>
     </parent>
 
@@ -19,6 +19,10 @@
 
     <properties>
         <java.version>21</java.version>
+        <!-- Spring Boot 4 = Jakarta EE 11 : sa BOM tire jersey-core en 4.0.x. On aligne
+             TOUS nos artefacts Jersey sur la même version, sinon mismatch au runtime
+             (ex : AbstractBinder introuvable entre jersey-common 4.0 et nos jars 3.1). -->
+        <jersey.version>4.0.2</jersey.version>
     </properties>
 
     <dependencies>
@@ -50,19 +54,19 @@
         <dependency>
             <groupId>org.glassfish.jersey.containers</groupId>
             <artifactId>jersey-container-servlet</artifactId>
-            <version>3.1.9</version>
+            <version>${jersey.version}</version>
         </dependency>
         <!-- Moteur d'injection de Jersey (obligatoire au démarrage du conteneur JAX-RS) -->
         <dependency>
             <groupId>org.glassfish.jersey.inject</groupId>
             <artifactId>jersey-hk2</artifactId>
-            <version>3.1.9</version>
+            <version>${jersey.version}</version>
         </dependency>
         <!-- Jackson pour la (dé)sérialisation JSON côté Jersey -->
         <dependency>
             <groupId>org.glassfish.jersey.media</groupId>
             <artifactId>jersey-media-json-jackson</artifactId>
-            <version>3.1.9</version>
+            <version>${jersey.version}</version>
         </dependency>
         <!-- Support des dates java.time (LocalDate) en JSON -->
         <dependency>
@@ -75,7 +79,7 @@
         <dependency>
             <groupId>org.glassfish.jersey.ext</groupId>
             <artifactId>jersey-bean-validation</artifactId>
-            <version>3.1.9</version>
+            <version>${jersey.version}</version>
         </dependency>
 
         <!-- Swagger UI (statique) servi hors-ligne depuis le webjar : pas de CDN. -->
@@ -90,6 +94,34 @@
             <groupId>org.webjars</groupId>
             <artifactId>webjars-locator-core</artifactId>
         </dependency>
+
+        <!-- ============================================================
+             Tests : JUnit 5 + TestRestTemplate (vrai HTTP sur serveur embarqué).
+             MockMvc ne conviendrait PAS ici : il passe par le DispatcherServlet
+             Spring et ne toucherait jamais le servlet Jersey monté sur /api/*.
+             Le Tomcat embarqué (scope provided) est présent sur le classpath de
+             test, donc webEnvironment=RANDOM_PORT démarre un vrai conteneur.
+             ============================================================ -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Spring Boot 4 : TestRestTemplate a quitté spring-boot-test pour son
+             propre module (org.springframework.boot.resttestclient). Il n'est plus
+             tiré par starter-test, on l'ajoute explicitement. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-resttestclient</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- TestRestTemplate s'appuie sur RestTemplateBuilder, lui aussi extrait dans
+             son propre module en Spring Boot 4 (spring-boot-restclient). -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-restclient</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -99,6 +131,22 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+
+            <!-- Convention batchmeal : les tests *IT (E2E) tournent via Failsafe,
+                 lié à la phase `verify` (PAS `mvn test`, qui n'exécute que Surefire /
+                 les *Test). Version gérée par le parent Spring Boot. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
 
             <!--
